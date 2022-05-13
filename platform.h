@@ -1,12 +1,13 @@
 #ifndef OTLS_PLATFORM_H
 #define OTLS_PLATFORM_H 1 
 
-#if defined (WIN32)
+#if defined (WIN32) || defined (__WIN32) || defined (__NT__)
+#define PLATFORM_WINDOWS 1
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <winsock2.h>
 #include <ws2tcpip.h>
-#elif defined(__linux__) || defined (__unix__) || defined (__APPLE__) 
+#elif defined(__linux__) || defined (__unix__) || defined (__APPLE__) oeuaoeuoaeu;
 #define closesocket close 
 #define SOCKET int
 #define INVALID_SOCKET -1
@@ -21,7 +22,7 @@
 #endif
 
 static inline int init_socket() {
-#ifdef WIN32
+#ifdef PLATFORM_WINDOWS
   WSADATA wsa;
   return WSAStartup(MAKEWORD(2, 0), &wsa);
 #else 
@@ -30,7 +31,7 @@ static inline int init_socket() {
 }
 
 static inline int cleanup_socket() {
-#ifdef WIN32
+#ifdef PLATFORM_WINDOWS
   WSADATA wsa;
   return WSAStartup(MAKEWORD(2, 0), &wsa);
 #else 
@@ -40,7 +41,7 @@ static inline int cleanup_socket() {
 }
 
 static inline int get_last_socket_error() {
-#ifdef WIN32
+#ifdef PLATFORM_WINDOWS
   return WSAGetLastError(); 
 #else
   return errno;

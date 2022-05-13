@@ -22,14 +22,14 @@ int main(int argc, char **argv) {
     "\r\n";
   SOCKET client = INVALID_SOCKET;
   size_t i = 0;
-
+  int res; 
   uint8_t buf[MTU];
   char response[BUF_MAX_SIZE]; // 4K buffer
 
   printf("Starting Up...\n");
 
   // Result
-  int res = init_socket();   
+  res = init_socket();   
   // host entries (this is allocated by gethostbyname) 
   entry = gethostbyname(httpbin);
   
@@ -110,8 +110,6 @@ int main(int argc, char **argv) {
   }
 
   printf("Socket 0x%X closed\n", client);
-
-out:
   printf("Cleaning Up...\n");
   cleanup_socket();
   return res;
