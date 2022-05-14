@@ -22,9 +22,10 @@ int main(int argc, char **argv) {
     "\r\n";
   SOCKET client = INVALID_SOCKET;
   size_t i = 0;
-  int res; 
+
   uint8_t buf[MTU];
   char response[BUF_MAX_SIZE]; // 4K buffer
+  int res = -1;
 
   printf("Starting Up...\n");
 
@@ -112,6 +113,9 @@ int main(int argc, char **argv) {
   printf("Socket 0x%X closed\n", client);
   printf("Cleaning Up...\n");
   cleanup_socket();
+  
+  printf("Press [ENTER] to Close.\n");
+  getchar();
   return res;
 
 error:
