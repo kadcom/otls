@@ -5004,7 +5004,6 @@ MBEDTLS_STATIC_TESTABLE
 void mbedtls_ecp_fix_negative( mbedtls_mpi *N, signed char c, size_t bits )
 {
     size_t i;
-    mbedtls_mpi_uint msw;
 
     /* Set N := 2^bits - 1 - N. We know that 0 <= N < 2^bits, so
      * set the absolute value to 0xfff...fff - N. There is no carry
@@ -5024,7 +5023,7 @@ void mbedtls_ecp_fix_negative( mbedtls_mpi *N, signed char c, size_t bits )
 
     /* Add |c| * 2^bits to the absolute value. Since c and N are
     * negative, this adds c * 2^bits. */
-    msw = (mbedtls_mpi_uint) -c;
+    mbedtls_mpi_uint msw = (mbedtls_mpi_uint) -c;
 #if defined(MBEDTLS_HAVE_INT64)
     if( bits == 224 )
         msw <<= 32;
