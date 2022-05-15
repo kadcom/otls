@@ -3,7 +3,17 @@
 #include <string.h>
 
 #include "config.h"
+#include "mbedtls/x509_crt.h"
 #include "platform.h"
+
+#include "mbedtls/ssl.h"
+#include "mbedtls/entropy.h"
+#include "mbedtls/ctr_drbg.h"
+#include "mbedtls/debug.h"
+
+static inline int is_error(int errcode) {
+  return errcode < 0;
+}
 
 int main(int argc, char **argv) {
   // Winsock data 
@@ -26,11 +36,67 @@ int main(int argc, char **argv) {
   uint8_t buf[MTU];
   char response[BUF_MAX_SIZE]; // 4K buffer
   int res = -1;
+  
+  // TLS Structures 
+  mbedtls_entropy_context entropy;
+  mbedtls_ssl_context ssl;
+  mbedtls_ctr_drbg_context ctr_drbg;
+  mbedtls_ssl_config ssl_config;
+  mbedtls_x509_crt certs;
 
   printf("Starting Up...\n");
-
+   
   // Result
-  res = init_socket();   
+  res = init_socket();
+
+  if (res == SOCKET_ERROR) {
+    goto error;
+  }
+
+  // Configuring TLS 
+  printf("Initialising MbedTLS structures....\n");
+  mbedtls_ssl_config_init(&ssl_config);
+  mbedtls_entropy_init(&entropy);
+  mbedtls_ctr_drbg_init(&ctr_drbg); 
+  mbedtls_ssl_init(&ssl); 
+  mbedtls_ssl_config_init(&ssl_config);
+  mbedtls_x509_crt_init(&certs);
+  
+  // Initiialising config
+  res = mbedtls_x509_crt_parse_file(&certs, CACERTS);
+
+  if (is_error(res)) {
+    goto tls_cleanup;
+  }
+
+  res = mbedtls_ssl_config_defaults(&ssl_config,
+      MBEDTLS_SSL_IS_CLIENT, 
+      MBEDTLS_SSL_TRANSPORT_STREAM,
+      MBEDTLS_SSL_PRESET_DEFAULT);
+
+  if (is_error(res)) {
+    goto tls_cleanup;
+  }
+
+  mbedtls_ssl_conf_min_version(&ssl_config, 
+        MBEDTLS_SSL_MAJOR_VERSION_3, 
+        MBEDTLS_SSL_MINOR_VERSION_3);
+ 
+  mbedtls_ssl_conf_ca_chain(&ssl_config, 
+      &certs, 0);
+
+  res = mbedtls_ssl_set_hostname(&ssl, httpbin);
+
+  if (is_error(res)) {
+    goto tls_cleanup;
+  }
+
+  mbedtls_ssl_conf_authmode(&ssl_config, MBEDTLS_SSL_VERIFY_REQUIRED);
+
+  printf("Loaded certificates: %s\n", CACERTS);
+
+  mbedtls_ssl_conf_rng(&ssl_config, mbedtls_ctr_drbg_random, &ctr_drbg);
+
   // host entries (this is allocated by gethostbyname) 
   entry = gethostbyname(httpbin);
   
@@ -111,6 +177,21 @@ int main(int argc, char **argv) {
   }
 
   printf("Socket 0x%X closed\n", client);
+
+tls_cleanup:
+  // Cleaning up TLS 
+  printf("Cleaning Up mbedTLS structures...\n");
+  mbedtls_x509_crt_free(&certs);
+  mbedtls_ssl_config_free(&ssl_config);
+  mbedtls_ssl_free(&ssl);
+  mbedtls_ctr_drbg_free(&ctr_drbg);
+  mbedtls_entropy_free(&entropy);
+
+  if (is_error(res)) {
+    printf("Get TLS error: -%X\n", res * -1);
+    goto error;
+  }
+
   printf("Cleaning Up...\n");
   cleanup_socket();
   
@@ -119,7 +200,9 @@ int main(int argc, char **argv) {
   return res;
 
 error:
-  printf("Get Socket error 0x%X!", res);
+  if (client != INVALID_SOCKET) {
+    closesocket(client);
+  }
   cleanup_socket();
 
   return res;
