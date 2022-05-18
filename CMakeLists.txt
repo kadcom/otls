@@ -1,7 +1,7 @@
-cmake_minimum_required(VERSION 3.20.0)
+cmake_minimum_required(VERSION 3.5.1)
 project(binfetch)
 
-set(SOURCES main.c) 
+set(SOURCES main.c tls_debug.c) 
 
 add_executable(binfetch ${SOURCES})
 

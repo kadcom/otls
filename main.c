@@ -11,8 +11,26 @@
 #include "mbedtls/ctr_drbg.h"
 #include "mbedtls/debug.h"
 
+#include "tls_debug.h"
+
+struct ssl_context_t {
+  SOCKET sock; 
+};
+
 static inline int is_error(int errcode) {
   return errcode < 0;
+}
+
+static int tls_send_cb(void *ssl_ctx, const unsigned char *buf, size_t len) {
+  struct ssl_context_t *ctx = (struct ssl_context_t *)ssl_ctx;
+  
+  return send(ctx->sock, buf, len, 0);
+}
+
+static int tls_recv_cb(void *ssl_ctx, unsigned char *buf, size_t len) {
+  struct ssl_context_t *ctx = (struct ssl_context_t *)ssl_ctx;
+
+  return recv(ctx->sock, (void*) buf, len, 0);
 }
 
 int main(int argc, char **argv) {
@@ -21,7 +39,7 @@ int main(int argc, char **argv) {
   struct in_addr **addr_list, **addr_iter, addr_item;
   struct sockaddr_in addr;
   static const char httpbin[] = "httpbin.org";
-  static const short port = 80;
+  static const short port = 443;
   static const char request [] = 
     "GET /get HTTP/1.1\r\n" /* Request Line */
     "Host: httpbin.org\r\n"
@@ -32,9 +50,16 @@ int main(int argc, char **argv) {
     "\r\n";
   SOCKET client = INVALID_SOCKET;
   size_t i = 0;
+  struct ssl_context_t ctx;
 
   uint8_t buf[MTU];
-  char response[BUF_MAX_SIZE]; // 4K buffer
+#if defined(WIN32)
+  HANDLE hHeap = GetProcessHeap(); 
+  char *response = (char*) HeapAlloc(hHeap, HEAP_ZERO_MEMORY, BUF_MAX_SIZE);
+#else
+  char response[BUF_MAX_SIZE]; // 1 MB buffer
+#endif 
+
   int res = -1;
   
   // TLS Structures 
@@ -61,7 +86,19 @@ int main(int argc, char **argv) {
   mbedtls_ssl_init(&ssl); 
   mbedtls_ssl_config_init(&ssl_config);
   mbedtls_x509_crt_init(&certs);
-  
+
+#if 0
+  mbedtls_ssl_conf_verify(&ssl_config, my_verify, NULL);
+  mbedtls_ssl_conf_dbg(&ssl_config, my_debug, NULL);
+  mbedtls_debug_set_threshold(4);
+#endif
+  // Seeding random 
+  res = mbedtls_ctr_drbg_seed(&ctr_drbg, mbedtls_entropy_func, &entropy, NULL, 0); 
+
+  if (is_error(res)) {
+    goto tls_cleanup;
+  }
+
   // Initiialising config
   res = mbedtls_x509_crt_parse_file(&certs, CACERTS);
 
@@ -131,8 +168,8 @@ int main(int argc, char **argv) {
   
   if (INVALID_SOCKET == client) {
     goto error;
-  }
- 
+  } 
+
   printf("Socket opened 0x%X\n", client);
 
   res = connect(client, (struct sockaddr *) &addr, sizeof(struct sockaddr_in));
@@ -143,28 +180,66 @@ int main(int argc, char **argv) {
 
   printf("Connected to %s (%s)\n", inet_ntoa(addr.sin_addr), httpbin);
   
-  res = send(client, request, sizeof(request) - 1, 0);
-  
-  if ( SOCKET_ERROR == res ) {
+  res = mbedtls_ssl_setup(&ssl, &ssl_config);
+
+  if (is_error(res)) {
+    goto tls_cleanup;
+  }
+
+  ctx.sock = client;
+
+  printf("Setting up BIO and doing handshake..\n");
+
+  mbedtls_ssl_set_bio(&ssl, &ctx, tls_send_cb, tls_recv_cb, NULL);
+
+  res = mbedtls_ssl_handshake(&ssl);
+
+  if (is_error(res)) {
+    goto tls_cleanup;
+  }
+
+  printf("Writing to TLS socket ... \n");
+
+  res = mbedtls_ssl_write(&ssl, (const unsigned char *) request, sizeof(request) - 1); 
+
+  if (is_error(res)) {
     goto error;
   }
 
+  printf("Receiving Data...\n");
   i = 0;
   do {
-    res = recv(client, (char *) buf, MTU, 0);
+    res = mbedtls_ssl_read(&ssl, buf, MTU);
     
-    if ( SOCKET_ERROR == res || i + res > BUF_MAX_SIZE ) {
+    printf("Received %d bytes\n", res);
+
+    if (res == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY) {
       break;
     }
 
+    if (res < 0) {
+      printf("Read error... -0x%X\n", res);
+      break;
+    }
+
+    if (i + res > BUF_MAX_SIZE) {
+      printf("Buffer overflowing..  : %lu\n", i + res);
+      break;
+    }
+
+    if (res == 0) {
+      break; 
+    }
+
     memcpy(response + i, buf, res);
-
     i += res;
-  } while (res != 0); 
+  } while (1); 
 
-  if (res != 0) {
-    goto error;
+  if (res != MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY && res != 0) {
+    goto tls_cleanup;
   }
+
+  mbedtls_ssl_close_notify( &ssl );
   
   printf("Response:\n\n");
   
@@ -194,9 +269,14 @@ tls_cleanup:
 
   printf("Cleaning Up...\n");
   cleanup_socket();
+
+#if defined(WIN32) 
+  HeapFree(hHeap, 0, response);
+#endif
   
   printf("Press [ENTER] to Close.\n");
   getchar();
+
   return res;
 
 error:
@@ -204,6 +284,9 @@ error:
     closesocket(client);
   }
   cleanup_socket();
+#if defined(WIN32) 
+  HeapFree(hHeap, 0, response);
+#endif
 
   return res;
 }
