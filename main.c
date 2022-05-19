@@ -53,12 +53,7 @@ int main(int argc, char **argv) {
   struct ssl_context_t ctx;
 
   uint8_t buf[MTU];
-#if defined(WIN32)
-  HANDLE hHeap = GetProcessHeap(); 
-  char *response = (char*) HeapAlloc(hHeap, HEAP_ZERO_MEMORY, BUF_MAX_SIZE);
-#else
-  char response[BUF_MAX_SIZE]; // 1 MB buffer
-#endif 
+  char response[BUF_MAX_SIZE]; // 4KB buffer
 
   int res = -1;
   
@@ -92,20 +87,8 @@ int main(int argc, char **argv) {
   mbedtls_ssl_conf_dbg(&ssl_config, my_debug, NULL);
   mbedtls_debug_set_threshold(4);
 #endif
-  // Seeding random 
-  res = mbedtls_ctr_drbg_seed(&ctr_drbg, mbedtls_entropy_func, &entropy, NULL, 0); 
-
-  if (is_error(res)) {
-    goto tls_cleanup;
-  }
-
-  // Initiialising config
-  res = mbedtls_x509_crt_parse_file(&certs, CACERTS);
-
-  if (is_error(res)) {
-    goto tls_cleanup;
-  }
-
+ 
+  // Initiialising config 
   res = mbedtls_ssl_config_defaults(&ssl_config,
       MBEDTLS_SSL_IS_CLIENT, 
       MBEDTLS_SSL_TRANSPORT_STREAM,
@@ -118,6 +101,13 @@ int main(int argc, char **argv) {
   mbedtls_ssl_conf_min_version(&ssl_config, 
         MBEDTLS_SSL_MAJOR_VERSION_3, 
         MBEDTLS_SSL_MINOR_VERSION_3);
+
+  res = mbedtls_x509_crt_parse_file(&certs, CACERTS);
+
+  if (is_error(res)) {
+    goto tls_cleanup;
+  }
+
  
   mbedtls_ssl_conf_ca_chain(&ssl_config, 
       &certs, 0);
@@ -131,6 +121,13 @@ int main(int argc, char **argv) {
   mbedtls_ssl_conf_authmode(&ssl_config, MBEDTLS_SSL_VERIFY_REQUIRED);
 
   printf("Loaded certificates: %s\n", CACERTS);
+  
+  // Seeding random 
+  res = mbedtls_ctr_drbg_seed(&ctr_drbg, mbedtls_entropy_func, &entropy, NULL, 0); 
+
+  if (is_error(res)) {
+    goto tls_cleanup;
+  }
 
   mbedtls_ssl_conf_rng(&ssl_config, mbedtls_ctr_drbg_random, &ctr_drbg);
 
@@ -199,27 +196,41 @@ int main(int argc, char **argv) {
   }
 
   printf("Writing to TLS socket ... \n");
+  
+  do {
+    res = mbedtls_ssl_write(&ssl, (const unsigned char *) request, sizeof(request) - 1); 
 
-  res = mbedtls_ssl_write(&ssl, (const unsigned char *) request, sizeof(request) - 1); 
+    if (res > 0) {
+      break;
+    }
 
-  if (is_error(res)) {
-    goto error;
-  }
+    if (res == MBEDTLS_ERR_SSL_WANT_WRITE || res == MBEDTLS_ERR_SSL_WANT_READ) {
+      continue;
+    }
+
+    if (is_error(res)) {
+      printf("TLS Writing error! %d\n\n", res);
+      goto error;
+    }
+  } while(1);
 
   printf("Receiving Data...\n");
+  
   i = 0;
   do {
     res = mbedtls_ssl_read(&ssl, buf, MTU);
-    
-    printf("Received %d bytes\n", res);
+
+    if (res == MBEDTLS_ERR_SSL_WANT_READ || res == MBEDTLS_ERR_SSL_WANT_WRITE ) {
+      continue;
+    }
 
     if (res == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY) {
       break;
     }
 
-    if (res < 0) {
+    if (is_error(res)) {
       printf("Read error... -0x%X\n", res);
-      break;
+      goto tls_cleanup;
     }
 
     if (i + res > BUF_MAX_SIZE) {
@@ -228,16 +239,15 @@ int main(int argc, char **argv) {
     }
 
     if (res == 0) {
+      printf("EOF from server \n");
       break; 
     }
-
+  
     memcpy(response + i, buf, res);
     i += res;
-  } while (1); 
+    printf("Received %d bytes, total %lu\n", res, i);
 
-  if (res != MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY && res != 0) {
-    goto tls_cleanup;
-  }
+  } while (1); 
 
   mbedtls_ssl_close_notify( &ssl );
   
@@ -269,11 +279,7 @@ tls_cleanup:
 
   printf("Cleaning Up...\n");
   cleanup_socket();
-
-#if defined(WIN32) 
-  HeapFree(hHeap, 0, response);
-#endif
-  
+ 
   printf("Press [ENTER] to Close.\n");
   getchar();
 
@@ -284,9 +290,6 @@ error:
     closesocket(client);
   }
   cleanup_socket();
-#if defined(WIN32) 
-  HeapFree(hHeap, 0, response);
-#endif
 
   return res;
 }

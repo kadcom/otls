@@ -103,9 +103,9 @@ void mbedtls_platform_zeroize( void *buf, size_t len )
 struct tm *mbedtls_platform_gmtime_r( const mbedtls_time_t *tt,
                                       struct tm *tm_buf )
 {
-#if defined(_WIN32) && !defined(EFIX64) && !defined(EFI32)
-    return( ( gmtime_s( tm_buf, tt ) == 0 ) ? tm_buf : NULL );
-#elif !defined(PLATFORM_UTIL_USE_GMTIME)
+#if defined(_WIN32) && !defined(EFIX64) && !defined(EFI32) && !defined(__WATCOMC__)
+    return( ( gmtime_s( tm_buf, tt ) == 0 ) ? tm_buf : NULL ); 
+#elif !defined(PLATFORM_UTIL_USE_GMTIME) && !defined(__WATCOMC__)
     return( gmtime_r( tt, tm_buf ) );
 #else
     struct tm *lt;

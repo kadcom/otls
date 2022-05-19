@@ -3114,18 +3114,19 @@ static int ssl_handshake_init( mbedtls_ssl_context *ssl )
     /* Heap allocate and translate curve_list from internal to IANA group ids */
     if ( ssl->conf->curve_list != NULL )
     {
-        size_t length;
+        size_t length, i;
         const mbedtls_ecp_group_id *curve_list = ssl->conf->curve_list;
+        uint16_t *group_list;
 
         for( length = 0;  ( curve_list[length] != MBEDTLS_ECP_DP_NONE ) &&
                           ( length < MBEDTLS_ECP_DP_MAX ); length++ ) {}
 
         /* Leave room for zero termination */
-        uint16_t *group_list = mbedtls_calloc( length + 1, sizeof(uint16_t) );
+        group_list = mbedtls_calloc( length + 1, sizeof(uint16_t) );
         if ( group_list == NULL )
             return( MBEDTLS_ERR_SSL_ALLOC_FAILED );
 
-        for( size_t i = 0; i < length; i++ )
+        for( i = 0; i < length; i++ )
         {
             const mbedtls_ecp_curve_info *info =
                         mbedtls_ecp_curve_info_from_grp_id( curve_list[i] );
@@ -6821,10 +6822,11 @@ unsigned char mbedtls_ssl_hash_from_md_alg( int md )
 int mbedtls_ssl_check_curve( const mbedtls_ssl_context *ssl, mbedtls_ecp_group_id grp_id )
 {
     const uint16_t *group_list = mbedtls_ssl_get_groups( ssl );
+    uint16_t tls_id;
 
     if( group_list == NULL )
         return( -1 );
-    uint16_t tls_id = mbedtls_ecp_curve_info_from_grp_id(grp_id)->tls_id;
+    tls_id = mbedtls_ecp_curve_info_from_grp_id(grp_id)->tls_id;
 
     for( ; *group_list != 0; group_list++ )
     {

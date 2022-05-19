@@ -656,14 +656,16 @@ int mbedtls_ssl_encrypt_buf( mbedtls_ssl_context *ssl,
 #endif
         ) )
     {
+        unsigned char mac[MBEDTLS_SSL_MAC_ADD];
+        int ret;
+
         if( post_avail < transform->maclen )
         {
             MBEDTLS_SSL_DEBUG_MSG( 1, ( "Buffer provided for encrypted record not large enough" ) );
             return( MBEDTLS_ERR_SSL_BUFFER_TOO_SMALL );
         }
 #if defined(MBEDTLS_SSL_PROTO_TLS1_2)
-        unsigned char mac[MBEDTLS_SSL_MAC_ADD];
-        int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
+        ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
 
         ssl_extract_add_data_from_record( add_data, &add_data_len, rec,
                                           transform->minor_ver,
@@ -1366,6 +1368,7 @@ int mbedtls_ssl_decrypt_buf( mbedtls_ssl_context const *ssl,
          * we have data_len >= padlen here. */
 
 #if defined(MBEDTLS_SSL_PROTO_TLS1_2)
+        {
         /* The padding check involves a series of up to 256
             * consecutive memory reads at the end of the record
             * plaintext buffer. In order to hide the length and
@@ -1393,7 +1396,7 @@ int mbedtls_ssl_decrypt_buf( mbedtls_ssl_context const *ssl,
             pad_count += mask & equal;
         }
         correct &= mbedtls_ct_size_bool_eq( pad_count, padlen );
-
+        }
 #if defined(MBEDTLS_SSL_DEBUG_ALL)
         if( padlen > 0 && correct == 0 )
             MBEDTLS_SSL_DEBUG_MSG( 1, ( "bad padding byte detected" ) );
@@ -1449,6 +1452,7 @@ int mbedtls_ssl_decrypt_buf( mbedtls_ssl_context const *ssl,
                                           transform->taglen );
 
 #if defined(MBEDTLS_SSL_PROTO_TLS1_2)
+        {
         /*
             * The next two sizes are the minimum and maximum values of
             * data_len over all padlen values.
@@ -1476,6 +1480,7 @@ int mbedtls_ssl_decrypt_buf( mbedtls_ssl_context const *ssl,
                                   rec->data_len,
                                   min_len, max_len,
                                   transform->maclen );
+        }
 #endif /* MBEDTLS_SSL_PROTO_TLS1_2 */
 
 #if defined(MBEDTLS_SSL_DEBUG_ALL)
